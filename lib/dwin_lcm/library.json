@@ -1,0 +1,8 @@
+{
+  "name": "dwin_lcm",
+  "version": "1.0.0",
+  "description": "Драйвер дисплея DWIN (протокол 5A A5)",
+  "keywords": "dwin, display, uart",
+  "frameworks": "arduino",
+  "platforms": "atmelavr"
+}

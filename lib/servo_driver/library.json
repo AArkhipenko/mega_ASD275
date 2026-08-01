@@ -1,0 +1,8 @@
+{
+  "name": "servo_driver",
+  "version": "1.0.0",
+  "description": "Драйвер управления сервоприводом ASD через CN1",
+  "keywords": "servo, driver, pulse",
+  "frameworks": "arduino",
+  "platforms": "atmelavr"
+}
