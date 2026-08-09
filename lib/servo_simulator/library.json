@@ -1,0 +1,8 @@
+{
+  "name": "servo_simulator",
+  "version": "1.0.0",
+  "description": "Симулятор сервопривода ASD для отладки прошивки без железа",
+  "keywords": "servo, simulator, debug",
+  "frameworks": "arduino",
+  "platforms": "atmelavr"
+}

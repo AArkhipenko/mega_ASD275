@@ -1,53 +1,78 @@
 /*
-  Управление сервоприводом ASD через CN1 (ДИФФЕРЕНЦИАЛЬНЫЙ ВЫХОД)
-  Платформа: Arduino Nano ATmega328
-  
-  Подключение:
-  D5 (PULS+)  → CN1 пин 5  (PULS+)
-  D3 (PULS-)  → CN1 пин 21 (PULS-)  ← ИНВЕРСНЫЙ СИГНАЛ!
-  D4 (SIGN+)  → CN1 пин 6  (SIGN+)
-  D2 (SIGN-)  → CN1 пин 22 (SIGN-)  ← ИНВЕРСНЫЙ СИГНАЛ!
-  
-  ВНИМАНИЕ: PULS- и SIGN- - это инверсные сигналы!
-  Для Arduino Nano используйте пины D2-D13
-*/
+ * Управление сервоприводом ASD через CN1 с учетом данных с дисплея DWIN
+ * Платформа: Arduino Mega 2560 ATmega2560
+ *
+ * Подключение:
+ * D5 (PULS+)  → CN1 пин 5
+ * D3 (PULS-)  → CN1 пин 21
+ * D4 (SIGN+)  → CN1 пин 6
+ * D2 (SIGN-)  → CN1 пин 22
+ *
+ * Serial1 (аппаратный UART):
+ * D19 (RX1)   → TX дисплея DWIN
+ * D18 (TX1)   → RX дисплея DWIN
+ * (Serial (пины 0, 1) используется только для отладки)
+ */
+
+#define USE_SERVO_SIMULATOR
 
 #include <Arduino.h>
+#include "dwin_lcm.h"
+#ifdef USE_SERVO_SIMULATOR
+#include "servo_simulator.h"
+#else
 #include "servo_driver.h"
-#include "uart_parser.h"
+#endif
+#include "data_source.h"
+#include "angle_source.h"
+#include "servo_interface.h"
+#include "position_calculator.h"
+#include "dwin_angle_source.h"
+#include "servo_controller.h"
 
-// Создание глобальных объектов
-ServoDriver servo;
-UARTParser parser(servo);
+// Дисплей DWIN подключен к аппаратному UART Serial1 (D18/TX1, D19/RX1)
+dwin_lcm display(Serial1);
+#ifdef USE_SERVO_SIMULATOR
+servo_simulator servo_impl;
+#else
+servo_driver servo_impl;
+#endif
+
+dwin_angle_source angle_reader_impl(display);
+servo_controller positioner_impl(servo_impl);
+
+// Далее логика оперирует только абстракциями
+servo_interface& servo = servo_impl;
+angle_source& angle_reader = angle_reader_impl;
+position_calculator& positioner = positioner_impl;
 
 void setup() {
-    // Инициализация драйвера сервопривода
+    Serial.begin(9600);
+    while (!Serial) { ; }
+
     servo.init();
-    
-    // Инициализация UART парсера
-    parser.init();
-    
-    // Информация о системе
-    Serial.println(F("Система инициализирована!"));
-    Serial.print(F("Платформа: Arduino Nano ATmega328"));
-    Serial.println(F(" @ 16 MHz"));
-    Serial.println();
-    
-    // Небольшая задержка для стабильности
-    delay(100);
+
+    // ВАЖНО: вызываем begin() для аппаратного Serial1 ПЕРЕД использованием
+    Serial1.begin(115200);
+
+    Serial.println(F("Система инициализирована. Ожидание команд от DWIN (VP 0x5002)..."));
+
+    delay(500);
 }
 
 void loop() {
-    // Обработка команд UART
-    parser.process();
-    
-    // Добавляем небольшую задержку для снижения нагрузки на процессор
-    // и предотвращения зависаний на Arduino Nano
-    delay(1);
-}
+    if (positioner.is_moving()) {
+        while (Serial1.available()) {
+            Serial1.read();
+        }
+        delay(1);
+        return;
+    }
 
-// Обработчик прерываний для аварийной остановки (опционально)
-// Можно подключить к кнопке или внешнему сигналу
-// ISR(INT0_vect) {
-//     servo.stopMotor();
-// }
+    float new_angle = 0.0f;
+    if (angle_reader.try_read_angle(new_angle)) {
+        positioner.try_apply_target(new_angle);
+    }
+
+    delay(10);
+}
