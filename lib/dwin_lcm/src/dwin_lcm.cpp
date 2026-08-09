@@ -1,7 +1,7 @@
 #include "dwin_lcm.h"
 
-dwin_lcm::dwin_lcm(Stream& serial_port, uint32_t baudrate, uint16_t vp_addr)
-    : _serial(&serial_port), _baudrate(baudrate), _vp_addr(vp_addr) {}
+dwin_lcm::dwin_lcm(Stream& serial_port, uint16_t vp_addr)
+    : _serial(&serial_port), _vp_addr(vp_addr) {}
 
 bool dwin_lcm::write_ram(uint16_t addr, const uint8_t* data, size_t data_len) {
     // Byte Count (BC) = CMD(1) + ADDR(2) + DATA(dataLen)
@@ -77,7 +77,6 @@ size_t dwin_lcm::read_response(uint8_t* buffer, size_t max_len, uint32_t timeout
     }
 
     if (index < 2) return 0; // Заголовок не найден за время timeout
-    Serial.println("Somemessage");
 
     // 2. Читаем байт количества байт (BC)
     while (millis() - start_time < timeout) {

@@ -16,11 +16,10 @@ class dwin_lcm : public data_source {
 public:
     /**
      * @brief Конструктор класса.
-     * @param serial_port Ссылка на объект Serial (HardwareSerial или SoftwareSerial).
-     * @param baudrate Скорость передачи данных (по умолчанию 115200).
+     * @param serial_port Ссылка на объект Serial (HardwareSerial).
      * @param vp_addr Адрес переменной VP, значение которой является источником данных.
      */
-    dwin_lcm(Stream& serial_port, uint32_t baudrate = 115200, uint16_t vp_addr = 0x5002);
+    dwin_lcm(Stream& serial_port, uint16_t vp_addr = 0x5002);
 
     /**
      * @brief Команда записи в RAM (0x82).
@@ -58,7 +57,6 @@ public:
 
 private:
     Stream* _serial;   ///< Указатель на объект Serial.
-    uint32_t _baudrate; ///< Скорость передачи данных.
     uint16_t _vp_addr;  ///< Адрес переменной VP для чтения значения.
 };
 

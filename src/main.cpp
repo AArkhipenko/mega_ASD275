@@ -1,6 +1,6 @@
 /*
- * Управление сервоприводом ASD через CN1 на основе данных с дисплея DWIN
- * Платформа: Arduino Nano ATmega328
+ * Управление сервоприводом ASD через CN1 с учетом данных с дисплея DWIN
+ * Платформа: Arduino Mega 2560 ATmega2560
  *
  * Подключение:
  * D5 (PULS+)  → CN1 пин 5
@@ -8,15 +8,15 @@
  * D4 (SIGN+)  → CN1 пин 6
  * D2 (SIGN-)  → CN1 пин 22
  *
- * D10 (RX)    → TX дисплея DWIN
- * D11 (TX)    → RX дисплея DWIN
- * (Аппаратный Serial (пины 0, 1) используется только для отладки)
+ * Serial1 (аппаратный UART):
+ * D19 (RX1)   → TX дисплея DWIN
+ * D18 (TX1)   → RX дисплея DWIN
+ * (Serial (пины 0, 1) используется только для отладки)
  */
 
 #define USE_SERVO_SIMULATOR
 
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 #include "dwin_lcm.h"
 #ifdef USE_SERVO_SIMULATOR
 #include "servo_simulator.h"
@@ -30,10 +30,8 @@
 #include "dwin_angle_source.h"
 #include "servo_controller.h"
 
-SoftwareSerial dwin_serial(10, 11);
-
-// Конкретные реализации создаются один раз (composition root)
-dwin_lcm display(dwin_serial, 115200);
+// Дисплей DWIN подключен к аппаратному UART Serial1 (D18/TX1, D19/RX1)
+dwin_lcm display(Serial1);
 #ifdef USE_SERVO_SIMULATOR
 servo_simulator servo_impl;
 #else
@@ -54,8 +52,8 @@ void setup() {
 
     servo.init();
 
-    // ВАЖНО: вызываем begin() для SoftwareSerial ПЕРЕД использованием
-    dwin_serial.begin(115200);
+    // ВАЖНО: вызываем begin() для аппаратного Serial1 ПЕРЕД использованием
+    Serial1.begin(115200);
 
     Serial.println(F("Система инициализирована. Ожидание команд от DWIN (VP 0x5002)..."));
 
@@ -64,8 +62,8 @@ void setup() {
 
 void loop() {
     if (positioner.is_moving()) {
-        while (dwin_serial.available()) {
-            dwin_serial.read();
+        while (Serial1.available()) {
+            Serial1.read();
         }
         delay(1);
         return;
