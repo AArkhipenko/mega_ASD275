@@ -1,0 +1,8 @@
+{
+  "name": "dwin_lcm_simulator",
+  "version": "1.0.0",
+  "description": "Симулятор дисплея DWIN для отладки прошивки без железа",
+  "keywords": "dwin, display, simulator, debug",
+  "frameworks": "arduino",
+  "platforms": "atmelavr"
+}

@@ -14,10 +14,12 @@
  * (Serial (пины 0, 1) используется только для отладки)
  */
 
-#define USE_SERVO_SIMULATOR
-
 #include <Arduino.h>
+#ifdef USE_DWIN_LCM_SIMULATOR
+#include "dwin_lcm_simulator.h"
+#else
 #include "dwin_lcm.h"
+#endif
 #ifdef USE_SERVO_SIMULATOR
 #include "servo_simulator.h"
 #else
@@ -30,8 +32,13 @@
 #include "dwin_angle_source.h"
 #include "servo_controller.h"
 
+#ifdef USE_DWIN_LCM_SIMULATOR
+// Симулятор: значение VP вводится с монитора Serial (пины 0, 1)
+dwin_lcm_simulator display(Serial);
+#else
 // Дисплей DWIN подключен к аппаратному UART Serial1 (D18/TX1, D19/RX1)
 dwin_lcm display(Serial1);
+#endif
 #ifdef USE_SERVO_SIMULATOR
 servo_simulator servo_impl;
 #else
@@ -52,10 +59,16 @@ void setup() {
 
     servo.init();
 
+#ifndef USE_DWIN_LCM_SIMULATOR
     // ВАЖНО: вызываем begin() для аппаратного Serial1 ПЕРЕД использованием
     Serial1.begin(115200);
+#endif
 
     Serial.println(F("Система инициализирована. Ожидание команд от DWIN (VP 0x5002)..."));
+
+#ifdef USE_DWIN_LCM_SIMULATOR
+    Serial.println(F("[SIM] Введите сырое значение VP (например, 4500 = 45.00°) в монитор порта"));
+#endif
 
     delay(500);
 }
