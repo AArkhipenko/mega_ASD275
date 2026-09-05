@@ -23,14 +23,14 @@ public:
     /// @param max_raw Максимальное значение.
     void set_raw_range(int32_t min_raw, int32_t max_raw);
 
-    /// @brief Адрес параметра.
+    /// @brief Основной адрес параметра.
     uint16_t address() const override;
 
     /// @brief Является ли параметр системным (уставкой).
     bool is_system_value() const override;
 
     /// @brief Применить новое значение и при необходимости вызвать транслятор.
-    bool apply_update(int32_t raw_value) override;
+    bool apply_update(uint16_t address, int32_t raw_value) override;
 
     /// @brief Текущее значение (сырое).
     int32_t current_raw() const override;
@@ -52,10 +52,10 @@ public:
     const char* name() const { return _name; }
 
 private:
-    uint16_t _address;   ///< Адрес параметра.
-    const char* _name;   ///< Имя параметра.
-    float _unit_scale;   ///< Множитель в физические единицы.
-    bool _system_value;  ///< Признак системного параметра.
+    uint16_t _address;    ///< Адрес параметра.
+    const char* _name;    ///< Имя параметра.
+    float _unit_scale;    ///< Множитель в физические единицы.
+    bool _system_value;   ///< Признак системного параметра.
     int32_t _current_raw; ///< Текущее сырое значение.
     int32_t _target_raw;  ///< Целевое сырое значение.
     int32_t _min_raw;     ///< Минимальное сырое значение.

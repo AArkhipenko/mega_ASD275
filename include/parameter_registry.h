@@ -20,7 +20,7 @@ public:
     /// @param storage Ссылка на хранилище.
     void register_storage(parameter_storage& storage);
 
-    /// @brief Найти хранилище по адресу параметра.
+    /// @brief Найти хранилище, принимающее данный адрес.
     /// @param address Адрес параметра.
     /// @return Указатель на хранилище или null.
     parameter_storage* find(uint16_t address);
@@ -29,10 +29,10 @@ public:
     /// @return Количество хранилищ.
     uint8_t count() const;
 
-    /// @brief Адрес параметра по индексу регистрации.
+    /// @brief Хранилище по индексу регистрации.
     /// @param index Индекс хранилища.
-    /// @return Адрес параметра (0 для недопустимого индекса).
-    uint16_t address_at(uint8_t index) const;
+    /// @return Указатель на хранилище (null для недопустимого индекса).
+    parameter_storage* storage_at(uint8_t index) const;
 
 private:
     static const uint8_t CAPACITY = 16;

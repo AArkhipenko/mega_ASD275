@@ -51,7 +51,11 @@ float scaled_parameter::target_units() const {
     return (float)_target_raw * _unit_scale;
 }
 
-bool scaled_parameter::apply_update(int32_t raw_value) {
+bool scaled_parameter::apply_update(uint16_t address, int32_t raw_value) {
+    if (address != _address) {
+        return false;
+    }
+
     if (raw_value < _min_raw || raw_value > _max_raw) {
         Serial.print(F("[PARAM] "));
         Serial.print(_name);

@@ -1,11 +1,13 @@
 /*
  * axis_motion_translator — реализация запуска движения:
  * расчёт оборотов/скорости из дельты, контроль завершения, подтверждения старта и таймаута.
+ * Настройки оси берутся из локального кэша, обновляемого при изменении хранилища настроек.
  */
 
 #include <Arduino.h>
 #include "axis_motion_translator.h"
 #include "parameter_storage.h"
+#include "axis_settings.h"
 #include "driver_interface.h"
 
 static const unsigned long MOVE_TIMEOUT_MS = 60000UL;
@@ -13,15 +15,27 @@ static const unsigned long MOVE_GRACE_MS   = 20UL;
 
 axis_motion_translator::axis_motion_translator(parameter_storage& storage,
                                                driver_interface& driver,
-                                               const parameter_storage* rpm_provider,
-                                               const parameter_storage* revs_per_unit_provider)
+                                               axis_settings& settings)
     : _storage(storage),
       _driver(driver),
-      _rpm_provider(rpm_provider),
-      _revs_per_unit(revs_per_unit_provider),
+      _settings(settings),
+      _rpm_cache(0.0f),
+      _revs_per_unit_cache(0.0f),
       _busy(false),
       _motion_observed(false),
-      _start_ms(0) {}
+      _start_ms(0) {
+    refresh_settings();
+}
+
+void axis_motion_translator::refresh_settings() {
+    _rpm_cache = (float)_settings.rpm();
+    _revs_per_unit_cache = _settings.revs_per_degree();
+}
+
+void axis_motion_translator::on_settings_changed(parameter_storage& storage) {
+    (void)storage;
+    refresh_settings();
+}
 
 bool axis_motion_translator::on_storage_changed(parameter_storage& storage) {
     if (_busy) {
@@ -35,19 +49,13 @@ bool axis_motion_translator::on_storage_changed(parameter_storage& storage) {
         return false;
     }
 
-    float rpm = 0.0f;
-    if (_rpm_provider != 0) {
-        rpm = _rpm_provider->current_units();
-    }
+    float rpm = _rpm_cache;
     if (rpm < 1.0f) {
         Serial.println(F("[MOVE] Скорость не задана"));
         return false;
     }
 
-    float revs_f = delta;
-    if (_revs_per_unit != 0) {
-        revs_f *= _revs_per_unit->current_units();
-    }
+    float revs_f = delta * _revs_per_unit_cache;
 
     int32_t revs = (int32_t)(revs_f >= 0.0f ? revs_f + 0.5f : revs_f - 0.5f);
     if (revs > 32767) revs = 32767;

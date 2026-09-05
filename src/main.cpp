@@ -6,7 +6,8 @@
  *   data_source        -> DWIN (Serial1) или симулятор (Serial)
  *   parameter_registry -> реестр параметров по адресам
  *   parameter_router   -> диспетчер обновлений от data_source
- *   scaled_parameter   -> хранилища параметров (угол, скорость, ...)
+ *   scaled_parameter   -> хранилища уставок (угол, расстояние)
+ *   axis_settings      -> хранилище настроек оси (скорость, масштаб)
  *   axis_motion_translator -> преобразование «дельта параметра» в команды
  *   driver_interface   -> ASD275 (Modbus RTU, Serial3) или симулятор
  */
@@ -26,7 +27,9 @@
 #endif
 
 #include "parameter_addresses.h"
+#include "parameter_storage.h"
 #include "scaled_parameter.h"
+#include "axis_settings.h"
 #include "axis_motion_translator.h"
 #include "parameter_registry.h"
 #include "parameter_router.h"
@@ -45,10 +48,9 @@ servo_driver servo_impl;
 
 scaled_parameter table_angle(param_addr::TABLE_ANGLE, "Угол станины", 0.01f, true);
 scaled_parameter distance(param_addr::DISTANCE_TO_STOP, "Расстояние до упора", 0.01f, true);
-scaled_parameter axis_speed(param_addr::SPEED_RPM, "Скорость", 1.0f, false);
-scaled_parameter revs_per_degree(param_addr::REVS_PER_DEGREE, "Оборотов на градус", 1e-4f, false);
+axis_settings settings(param_addr::SPEED_RPM, param_addr::REVS_PER_DEGREE);
 
-axis_motion_translator angle_translator(table_angle, servo_impl, &axis_speed, &revs_per_degree);
+axis_motion_translator angle_translator(table_angle, servo_impl, settings);
 
 parameter_registry registry;
 parameter_router router(display, registry);
@@ -63,14 +65,14 @@ void setup() {
 #endif
 
     table_angle.attach_translator(&angle_translator);
+    settings.attach_translator(&angle_translator);
 
     registry.register_storage(table_angle);
     registry.register_storage(distance);
-    registry.register_storage(axis_speed);
-    registry.register_storage(revs_per_degree);
+    registry.register_storage(settings);
 
-    axis_speed.apply_update(60);
-    revs_per_degree.apply_update(10000);
+    settings.apply_update(param_addr::SPEED_RPM, 60);
+    settings.apply_update(param_addr::REVS_PER_DEGREE, 10000);
 
     servo_impl.enable();
 
@@ -92,7 +94,10 @@ void loop() {
     if (now - last_poll >= POLL_PERIOD_MS) {
         last_poll = now;
         for (uint8_t i = 0; i < registry.count(); i++) {
-            display.read_ram(registry.address_at(i), 1);
+            parameter_storage* storage = registry.storage_at(i);
+            for (uint8_t j = 0; j < storage->address_count(); j++) {
+                display.read_ram(storage->address_at(j), 1);
+            }
         }
     }
 #endif

@@ -30,6 +30,6 @@ bool parameter_router::poll() {
         return true;
     }
 
-    storage->apply_update(update.raw_value);
+    storage->apply_update(update.address, update.raw_value);
     return true;
 }

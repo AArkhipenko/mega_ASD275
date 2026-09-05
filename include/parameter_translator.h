@@ -19,6 +19,10 @@ public:
     /// @return true, если изменение принято (запущено движение).
     virtual bool on_storage_changed(parameter_storage& storage) = 0;
 
+    /// @brief Уведомление об изменении настроек драйвера (системных переменных).
+    /// @param storage Хранилище настроек, изменившее значение.
+    virtual void on_settings_changed(parameter_storage& storage) { (void)storage; }
+
     /// @brief Периодический опрос состояния движения (вызывается главным циклом).
     virtual void tick() = 0;
 

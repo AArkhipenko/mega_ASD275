@@ -1,5 +1,5 @@
 /*
- * parameter_storage — интерфейс хранилища одного параметра устройства.
+ * parameter_storage — интерфейс хранилища параметра устройства.
  * Хранит текущее и целевое значения, применяет обновление и вызывает parameter_translator.
  */
 
@@ -10,7 +10,7 @@
 
 class parameter_translator;
 
-/// @brief Интерфейс хранилища одного параметра устройства.
+/// @brief Интерфейс хранилища параметра (или группы параметров) устройства.
 class parameter_storage {
 public:
     /// @brief Конструктор по умолчанию.
@@ -27,18 +27,33 @@ public:
     /// @return Указатель на транслятор или null.
     parameter_translator* translator() { return _translator; }
 
-    /// @brief Адрес параметра.
+    /// @brief Основной адрес параметра (для диагностики и регистрации).
     /// @return Адрес параметра.
     virtual uint16_t address() const = 0;
+
+    /// @brief Принимает ли хранилище обновление по данному адресу.
+    /// @param address Адрес из источника данных.
+    /// @return true, если адрес относится к этому хранилищу.
+    virtual bool owns(uint16_t address) const { return this->address() == address; }
+
+    /// @brief Количество адресов, которые обслуживает хранилище.
+    /// @return Количество адресов.
+    virtual uint8_t address_count() const { return 1; }
+
+    /// @brief Адрес по индексу (для хранилищ с несколькими адресами).
+    /// @param index Индекс адреса.
+    /// @return Адрес параметра.
+    virtual uint16_t address_at(uint8_t index) const { (void)index; return address(); }
 
     /// @brief Является ли параметр системным (уставкой, порождающей движение).
     /// @return true для системного параметра.
     virtual bool is_system_value() const = 0;
 
     /// @brief Применить новое значение параметра.
+    /// @param address Адрес параметра (для хранилищ, объединяющих несколько адресов).
     /// @param raw_value Новое сырое значение.
     /// @return true, если значение принято (и/или запущено движение).
-    virtual bool apply_update(int32_t raw_value) = 0;
+    virtual bool apply_update(uint16_t address, int32_t raw_value) = 0;
 
     /// @brief Текущее значение параметра (сырое).
     /// @return Текущее сырое значение.

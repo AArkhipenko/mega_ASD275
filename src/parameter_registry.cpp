@@ -20,7 +20,7 @@ void parameter_registry::register_storage(parameter_storage& storage) {
 
 parameter_storage* parameter_registry::find(uint16_t address) {
     for (uint8_t i = 0; i < _size; i++) {
-        if (_items[i]->address() == address) {
+        if (_items[i]->owns(address)) {
             return _items[i];
         }
     }
@@ -31,9 +31,9 @@ uint8_t parameter_registry::count() const {
     return _size;
 }
 
-uint16_t parameter_registry::address_at(uint8_t index) const {
+parameter_storage* parameter_registry::storage_at(uint8_t index) const {
     if (index >= _size) {
         return 0;
     }
-    return _items[index]->address();
+    return _items[index];
 }
