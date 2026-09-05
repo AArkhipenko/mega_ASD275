@@ -1,151 +1,189 @@
+/*
+ * servo_driver — реализация Modbus RTU обмена с ASD275:
+ * enable/disable, start_move (обороты и скорость), stop, is_moving и контроль ошибок связи.
+ */
+
 #include "servo_driver.h"
 
+#define MODBUS_MAX_RETRIES 3
+
 servo_driver::servo_driver()
-    : _motor_running(false), _current_direction(true), _pulse_width(10) {}
+    : _comm_fault(false),
+      _last_error_print(0) {}
 
-void servo_driver::init() {
-    // Настройка всех пинов как выходы
-    pinMode(PULS_PLUS, OUTPUT);
-    pinMode(PULS_MINUS, OUTPUT);
-    pinMode(SIGN_PLUS, OUTPUT);
-    pinMode(SIGN_MINUS, OUTPUT);
-
-    // Начальное состояние
-    set_pulse(false);
-    set_signals(true);  // Направление "Вперед"
+void servo_driver::set_transmit(bool transmit) {
+    digitalWrite(RS485_RSE_PIN, transmit ? HIGH : LOW);
 }
 
-void servo_driver::set_pulse(bool state) {
-    if (state) {
-        digitalWrite(PULS_PLUS, HIGH);
-        digitalWrite(PULS_MINUS, LOW);
-    } else {
-        digitalWrite(PULS_PLUS, LOW);
-        digitalWrite(PULS_MINUS, HIGH);
-    }
-}
-
-void servo_driver::set_signals(bool forward) {
-    _current_direction = forward;
-    if (forward) {
-        digitalWrite(SIGN_PLUS, HIGH);
-        digitalWrite(SIGN_MINUS, LOW);
-    } else {
-        digitalWrite(SIGN_PLUS, LOW);
-        digitalWrite(SIGN_MINUS, HIGH);
-    }
-}
-
-void servo_driver::move(unsigned long pulses) {
-    if (_motor_running) {
-        Serial.println(F("⚠ Двигатель уже работает! Дождитесь завершения."));
-        return;
-    }
-
-    if (pulses == 0) {
-        Serial.println(F("⚠ Количество импульсов должно быть больше 0!"));
-        return;
-    }
-
-    _motor_running = true;
-
-    unsigned long start_time = millis();
-
-    // Локальные переменные для быстрого доступа к пинам
-    uint8_t puls_plus_pin = PULS_PLUS;
-    uint8_t puls_minus_pin = PULS_MINUS;
-
-    if (_pulse_width < 2) {
-        Serial.println(F("⚠ Внимание: слишком маленькая ширина импульса!"));
-    }
-
-    for (unsigned long i = 0; i < pulses; i++) {
-        // PULS+ = HIGH, PULS- = LOW
-        digitalWrite(puls_plus_pin, HIGH);
-        digitalWrite(puls_minus_pin, LOW);
-        delayMicroseconds(_pulse_width);
-
-        // PULS+ = LOW, PULS- = HIGH
-        digitalWrite(puls_plus_pin, LOW);
-        digitalWrite(puls_minus_pin, HIGH);
-        delayMicroseconds(_pulse_width);
-
-        // Индикация прогресса (каждые 10000 импульсов)
-        if (i % 10000 == 0 && i > 0) {
-            Serial.print(F("."));
-        }
-
-        // Проверка на STOP команду
-        if (Serial.available()) {
-            char cmd = Serial.read();
-            if (cmd == 'S' || cmd == 's') {
-                Serial.println(F("\n⏹ Остановка по команде!"));
-                _motor_running = false;
-                set_pulse(false);
-                return;
+uint16_t servo_driver::crc16(const uint8_t* data, size_t len) {
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (uint8_t j = 0; j < 8; j++) {
+            if (crc & 0x0001) {
+                crc = (crc >> 1) ^ 0xA001;
+            } else {
+                crc >>= 1;
             }
         }
     }
-
-    // Возврат в исходное состояние
-    set_pulse(false);
-
-    unsigned long elapsed_time = millis() - start_time;
-
-    Serial.println();
-    Serial.print(F("✅ Готово за "));
-    Serial.print(elapsed_time);
-    Serial.println(F(" мс"));
-
-    _motor_running = false;
+    return crc;
 }
 
-unsigned long servo_driver::degrees_to_pulses(float degrees) {
-    if (degrees <= 0.0f) {
-        return 0;
+bool servo_driver::enable() {
+    pinMode(RS485_RSE_PIN, OUTPUT);
+    set_transmit(false);
+
+    Serial3.begin(SERVO_BAUD, SERVO_SERIAL_CONFIG);
+    Serial3.setTimeout(SERVO_RESPONSE_TIMEOUT);
+    _comm_fault = false;
+
+    bool ok = write_register(SERVO_ADDR_ENABLE, 0x0001);
+    ok = write_register(SERVO_ADDR_RESET, 0x0000) && ok;
+
+    if (!ok) {
+        Serial.println(F("[DRV] Ошибка включения сервопривода"));
+    } else {
+        Serial.println(F("[DRV] Сервопривод включён"));
     }
-    return (unsigned long)((degrees / 360.0f) * PULSES_PER_REVOLUTION);
+    return ok;
 }
 
-void servo_driver::set_direction(bool forward) {
-    if (_motor_running) {
-        Serial.println(F("⚠ Нельзя менять направление во время движения!"));
-        return;
+bool servo_driver::disable() {
+    return write_register(SERVO_ADDR_ENABLE, 0x0000);
+}
+
+bool servo_driver::write_register(uint16_t reg, uint16_t value) {
+    uint8_t frame[8];
+    frame[0] = SERVO_SLAVE_ADDR;
+    frame[1] = MODBUS_WRITE_SINGLE;
+    frame[2] = (uint8_t)(reg >> 8);
+    frame[3] = (uint8_t)(reg & 0xFF);
+    frame[4] = (uint8_t)(value >> 8);
+    frame[5] = (uint8_t)(value & 0xFF);
+    uint16_t crc = crc16(frame, 6);
+    frame[6] = (uint8_t)(crc & 0xFF);
+    frame[7] = (uint8_t)(crc >> 8);
+
+    for (uint8_t attempt = 0; attempt < MODBUS_MAX_RETRIES; attempt++) {
+        delay(SERVO_FRAME_GAP_MS);
+
+        set_transmit(true);
+        Serial3.write(frame, sizeof(frame));
+        Serial3.flush();
+        set_transmit(false);
+
+        uint8_t response[8];
+        size_t received = Serial3.readBytes(response, sizeof(response));
+
+        if (received != sizeof(response) ||
+            response[0] != SERVO_SLAVE_ADDR ||
+            response[1] != MODBUS_WRITE_SINGLE) {
+            continue;
+        }
+
+        uint16_t resp_crc = crc16(response, 6);
+        if (response[6] != (uint8_t)(resp_crc & 0xFF) ||
+            response[7] != (uint8_t)(resp_crc >> 8)) {
+            continue;
+        }
+
+        _comm_fault = false;
+        return true;
     }
 
-    set_signals(forward);
+    _comm_fault = true;
+    return false;
+}
+
+bool servo_driver::read_register(uint16_t reg, uint16_t& out_value) {
+    return read_register_func(reg, MODBUS_READ_HOLDING, out_value) ||
+           read_register_func(reg, MODBUS_READ_INPUT, out_value);
+}
+
+bool servo_driver::read_register_func(uint16_t reg, uint8_t func, uint16_t& out_value) {
+    uint8_t frame[8];
+    frame[0] = SERVO_SLAVE_ADDR;
+    frame[1] = func;
+    frame[2] = (uint8_t)(reg >> 8);
+    frame[3] = (uint8_t)(reg & 0xFF);
+    frame[4] = 0x00;
+    frame[5] = 0x01;
+    uint16_t crc = crc16(frame, 6);
+    frame[6] = (uint8_t)(crc & 0xFF);
+    frame[7] = (uint8_t)(crc >> 8);
+
+    for (uint8_t attempt = 0; attempt < MODBUS_MAX_RETRIES; attempt++) {
+        delay(SERVO_FRAME_GAP_MS);
+
+        set_transmit(true);
+        Serial3.write(frame, sizeof(frame));
+        Serial3.flush();
+        set_transmit(false);
+
+        uint8_t response[7];
+        size_t received = Serial3.readBytes(response, sizeof(response));
+
+        if (received != sizeof(response) ||
+            response[0] != SERVO_SLAVE_ADDR ||
+            response[1] != func ||
+            response[2] != 0x02) {
+            continue;
+        }
+
+        uint16_t resp_crc = crc16(response, 5);
+        if (response[5] != (uint8_t)(resp_crc & 0xFF) ||
+            response[6] != (uint8_t)(resp_crc >> 8)) {
+            continue;
+        }
+
+        out_value = (uint16_t)((response[3] << 8) | response[4]);
+        _comm_fault = false;
+        return true;
+    }
+
+    _comm_fault = true;
+    return false;
+}
+
+bool servo_driver::start_move(int32_t revolutions, uint16_t rpm) {
+    if (revolutions == 0 || rpm == 0) {
+        return false;
+    }
+
+    int32_t clamped = revolutions;
+    if (clamped > 32767) clamped = 32767;
+    if (clamped < -32767) clamped = -32767;
+
+    if (!write_register(SERVO_ADDR_REVOLUTIONS, (uint16_t)(int16_t)clamped)) {
+        return false;
+    }
+    if (!write_register(SERVO_ADDR_SPEED, rpm)) {
+        return false;
+    }
+    if (!write_register(SERVO_ADDR_RESET, 0x0001)) {
+        return false;
+    }
+    write_register(SERVO_ADDR_RESET, 0x0000);
+    return true;
 }
 
 void servo_driver::stop() {
-    set_pulse(false);
-    _motor_running = false;
-    Serial.println(F("⏹ СТОП"));
+    write_register(SERVO_ADDR_RESET, 0x0000);
 }
 
-void servo_driver::set_pulse_width(unsigned int width) {
-    if (width < 2) {
-        Serial.println(F("⚠ Минимальная ширина импульса: 2 мкс"));
-        _pulse_width = 2;
-    } else if (width > 1000) {
-        Serial.println(F("⚠ Максимальная ширина импульса: 1000 мкс"));
-        _pulse_width = 1000;
-    } else {
-        _pulse_width = width;
+bool servo_driver::is_moving() {
+    uint16_t status = 0;
+    if (!read_register(SERVO_ADDR_MONITOR, status)) {
+        if (millis() - _last_error_print >= 2000UL) {
+            _last_error_print = millis();
+            Serial.println(F("[DRV] Ошибка чтения статуса движения"));
+        }
+        return true;
     }
+    return status != 0;
 }
 
-bool servo_driver::is_running() const {
-    return _motor_running;
-}
-
-void servo_driver::print_status() const {
-    Serial.println(F("=== СТАТУС СЕРВОДВИГАТЕЛЯ ==="));
-    Serial.print(F("Состояние: "));
-    Serial.println(_motor_running ? F("РАБОТАЕТ") : F("ОСТАНОВЛЕН"));
-    Serial.print(F("Направление: "));
-    Serial.println(_current_direction ? F("ВПЕРЕД (CCW)") : F("НАЗАД (CW)"));
-    Serial.print(F("Ширина импульса: "));
-    Serial.print(_pulse_width);
-    Serial.println(F(" мкс"));
-    Serial.println(F("=============================="));
+bool servo_driver::has_fault() {
+    return _comm_fault;
 }

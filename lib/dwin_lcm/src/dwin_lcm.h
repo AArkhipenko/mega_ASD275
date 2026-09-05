@@ -1,63 +1,58 @@
+/*
+ * dwin_lcm — источник данных: обмен кадрами с дисплеем DWIN (RS232).
+ * Реализует data_source: разбирает кадры 0x82/0x83 в события parameter_update.
+ */
+
 #ifndef DWIN_LCM_H
 #define DWIN_LCM_H
 
 #include <Arduino.h>
 #include "data_source.h"
 
-// Максимальный размер кадра (с запасом для стандартных запросов DWIN)
-#define DWIN_MAX_FRAME_LEN 64
-
-/**
- * @brief Драйвер дисплея DWIN, реализующий интерфейс data_source.
- * Обеспечивает низкоуровневый обмен кадрами с дисплеем по протоколу DWIN
- * и предоставляет значение заданной переменной (VP) как источник данных.
- */
+/// @brief Источник данных на основе дисплея DWIN (протокол по RS232).
 class dwin_lcm : public data_source {
 public:
-    /**
-     * @brief Конструктор класса.
-     * @param serial_port Ссылка на объект Serial (HardwareSerial).
-     * @param vp_addr Адрес переменной VP, значение которой является источником данных.
-     */
-    dwin_lcm(Stream& serial_port, uint16_t vp_addr = 0x5002);
+    /// @brief Конструктор.
+    /// @param serial_port Последовательный порт дисплея (например, Serial1).
+    explicit dwin_lcm(Stream& serial_port);
 
-    /**
-     * @brief Команда записи в RAM (0x82).
-     * @param addr Адрес переменной VP (например, 0x5000).
-     * @param data Указатель на массив данных для записи.
-     * @param data_len Количество байт данных.
-     * @return true, если кадр успешно сформирован и отправлен.
-     */
+    /// @brief Отправить команду записи в RAM (0x82).
+    /// @param addr Адрес переменной VP.
+    /// @param data Указатель на данные.
+    /// @param data_len Количество байт данных.
+    /// @return true, если кадр сформирован и отправлен.
     bool write_ram(uint16_t addr, const uint8_t* data, size_t data_len);
 
-    /**
-     * @brief Команда чтения из RAM (0x83).
-     * @param addr Адрес переменной VP (например, 0x5000).
-     * @param num_words Количество считываемых слов (1 слово = 2 байта).
-     * @return true, если кадр успешно сформирован и отправлен.
-     */
+    /// @brief Отправить запрос чтения из RAM (0x83).
+    /// @param addr Адрес переменной VP.
+    /// @param num_words Количество запрашиваемых слов.
+    /// @return true, если запрос отправлен.
     bool read_ram(uint16_t addr, uint8_t num_words);
 
-    /**
-     * @brief Неблокирующее чтение ответа от дисплея.
-     * @param buffer Буфер для сохранения принятого кадра.
-     * @param max_len Максимальный размер буфера.
-     * @param timeout Таймаут ожидания в миллисекундах.
-     * @return Количество принятых байт (0, если ничего не принято или таймаут).
-     */
-    size_t read_response(uint8_t* buffer, size_t max_len, uint32_t timeout = 100);
-
-    /**
-     * @brief Считывает новое значение заданной VP-переменной.
-     * Реализация интерфейса data_source.
-     * @param out_value Ссылка на переменную для сохранения сырого значения.
-     * @return true, если получено новое значение; false при таймауте или ошибке кадра.
-     */
-    bool try_read_value(float& out_value) override;
+    /// @brief Неблокирующее чтение события обновления параметра.
+    /// @param out Ссылка для сохранения события.
+    /// @return true, если получен полный кадр 0x82/0x83.
+    bool try_read_update(parameter_update& out) override;
 
 private:
-    Stream* _serial;   ///< Указатель на объект Serial.
-    uint16_t _vp_addr;  ///< Адрес переменной VP для чтения значения.
+    /// @brief Состояния приёмника кадра.
+    enum frame_state {
+        ST_IDLE, ///< Ожидание заголовка 0x5A.
+        ST_HEAD, ///< Ожидание второго байта заголовка 0xA5.
+        ST_LEN,  ///< Приём длины кадра (BC).
+        ST_DATA  ///< Приём тела кадра.
+    };
+
+    Stream* _serial;   ///< Последовательный порт дисплея.
+    frame_state _state; ///< Состояние приёмника.
+    uint8_t _buf[32];  ///< Буфер принимаемого кадра.
+    uint8_t _idx;      ///< Индекс текущего байта кадра.
+    uint8_t _need;     ///< Полная длина ожидаемого кадра.
+
+    /// @brief Разобрать принятый кадр в событие обновления.
+    /// @param out Ссылка для сохранения события.
+    /// @return true, если кадр содержит событие параметра.
+    bool decode_frame(parameter_update& out);
 };
 
-#endif // DWIN_LCM_H
+#endif

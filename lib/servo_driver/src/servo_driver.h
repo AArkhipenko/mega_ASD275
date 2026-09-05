@@ -1,90 +1,113 @@
+/*
+ * servo_driver — реализация driver_interface для ASD275 по Modbus RTU (RS485, Serial3).
+ * Параметры связи и адреса регистров привода настраиваются макросами ниже.
+ */
+
 #ifndef SERVO_DRIVER_H
 #define SERVO_DRIVER_H
 
 #include <Arduino.h>
-#include "servo_interface.h"
+#include "driver_interface.h"
 
-// Определение пинов для Arduino Nano
-// Используем цифровые пины D2-D13
-#define PULS_PLUS  5   // D5 - PULS+ (прямой сигнал)
-#define PULS_MINUS 3   // D3 - PULS- (инверсный сигнал)
-#define SIGN_PLUS  4   // D4 - SIGN+ (прямой сигнал)
-#define SIGN_MINUS 2   // D2 - SIGN- (инверсный сигнал)
+// Пин управления направлением RS485 (RSE).
+#ifndef RS485_RSE_PIN
+#define RS485_RSE_PIN 2
+#endif
 
-// Константы для расчета оборотов
-#define PULSES_PER_REVOLUTION 10000  // 10000 импульсов = 1 оборот
+// Параметры связи Modbus RTU (PA71–PA73 привода ASD275).
+#ifndef SERVO_SLAVE_ADDR
+#define SERVO_SLAVE_ADDR     0x01
+#endif
+#ifndef SERVO_BAUD
+#define SERVO_BAUD           9600
+#endif
+#ifndef SERVO_SERIAL_CONFIG
+#define SERVO_SERIAL_CONFIG  SERIAL_8N2
+#endif
 
-/**
- * @brief Драйвер сервопривода ASD, реализующий интерфейс servo_interface.
- * Генерирует импульсы управления (PULS) и сигналы направления (SIGN) через CN1.
- */
-class servo_driver : public servo_interface {
+// Адреса регистров ASD275 (Modbus).
+#define SERVO_ADDR_ENABLE    0xB5    ///< Включение привода.
+#define SERVO_ADDR_RESET     0x11F   ///< Старт/сброс движения.
+#define SERVO_ADDR_REVOLUTIONS 0x202 ///< Количество оборотов.
+#define SERVO_ADDR_SPEED     0x204   ///< Скорость вращения.
+#define SERVO_ADDR_MONITOR   0x1000  ///< Мониторинг движения.
+
+// Коды функций Modbus RTU.
+#define MODBUS_READ_HOLDING  0x03
+#define MODBUS_READ_INPUT    0x04
+#define MODBUS_WRITE_SINGLE  0x06
+
+// Тайминги Modbus RTU.
+#ifndef SERVO_RESPONSE_TIMEOUT
+#define SERVO_RESPONSE_TIMEOUT 100
+#endif
+#ifndef SERVO_FRAME_GAP_MS
+#define SERVO_FRAME_GAP_MS 5
+#endif
+
+/// @brief Драйвер сервопривода ASD275 по Modbus RTU (RS485).
+class servo_driver : public driver_interface {
 public:
-    /// @brief Конструктор класса.
+    /// @brief Конструктор.
     servo_driver();
 
-    /**
-     * @brief Инициализирует пины управления сервоприводом.
-     */
-    void init() override;
+    /// @brief Настроить порт и включить привод.
+    /// @return true при успехе.
+    bool enable() override;
 
-    /**
-     * @brief Задаёт направление вращения.
-     * @param forward true — вперёд (CCW), false — назад (CW).
-     */
-    void set_direction(bool forward) override;
+    /// @brief Выключить привод.
+    /// @return true при успехе.
+    bool disable() override;
 
-    /**
-     * @brief Выполняет вращение на заданное количество импульсов.
-     * @param pulses Количество импульсов (10000 = 1 оборот).
-     */
-    void move(unsigned long pulses) override;
+    /// @brief Задать перемещение и запустить движение.
+    /// @param revolutions Обороты (знак — направление, ограничено ±32767).
+    /// @param rpm Скорость в об/мин.
+    /// @return true, если движение запущено.
+    bool start_move(int32_t revolutions, uint16_t rpm) override;
 
-    /**
-     * @brief Преобразует угол в градусах в количество импульсов.
-     * @param degrees Угол в градусах.
-     * @return Количество импульсов для поворота на заданный угол.
-     */
-    unsigned long degrees_to_pulses(float degrees) override;
-
-    /**
-     * @brief Останавливает двигатель.
-     */
+    /// @brief Остановить движение.
     void stop() override;
 
-    /**
-     * @brief Проверяет, выполняет ли двигатель движение в данный момент.
-     * @return true, если двигатель в движении.
-     */
-    bool is_running() const override;
+    /// @brief Проверка вращения привода (регистр 0x1000).
+    /// @return true, если привод вращается.
+    bool is_moving() override;
 
-    /**
-     * @brief Устанавливает ширину импульса в микросекундах.
-     * @param width Ширина импульса (2..1000 мкс).
-     */
-    void set_pulse_width(unsigned int width);
-
-    /**
-     * @brief Выводит текущий статус в Serial.
-     */
-    void print_status() const;
+    /// @brief Наличие ошибки обмена по Modbus.
+    /// @return true при ошибке связи.
+    bool has_fault() override;
 
 private:
-    bool _motor_running;       ///< Флаг работы двигателя.
-    bool _current_direction;   ///< Текущее направление (true = вперед).
-    unsigned int _pulse_width; ///< Ширина импульса в микросекундах.
+    /// @brief Переключить направление RS485 (RSE).
+    /// @param transmit true — передача, false — приём.
+    void set_transmit(bool transmit);
 
-    /**
-     * @brief Устанавливает состояние импульсного сигнала.
-     * @param state true — активный импульс, false — пассивный.
-     */
-    void set_pulse(bool state);
+    /// @brief Вычислить CRC-16 Modbus.
+    /// @param data Указатель на данные.
+    /// @param len Длина данных.
+    /// @return Значение CRC.
+    uint16_t crc16(const uint8_t* data, size_t len);
 
-    /**
-     * @brief Устанавливает сигналы направления.
-     * @param forward true — вперёд, false — назад.
-     */
-    void set_signals(bool forward);
+    /// @brief Записать один регистр (функция 0x06).
+    /// @param reg Адрес регистра.
+    /// @param value Значение.
+    /// @return true при успешной записи.
+    bool write_register(uint16_t reg, uint16_t value);
+
+    /// @brief Прочитать регистр (пробует функции 0x03 и 0x04).
+    /// @param reg Адрес регистра.
+    /// @param out_value Прочитанное значение.
+    /// @return true при успешном чтении.
+    bool read_register(uint16_t reg, uint16_t& out_value);
+
+    /// @brief Прочитать регистр заданной функцией.
+    /// @param reg Адрес регистра.
+    /// @param func Код функции чтения.
+    /// @param out_value Прочитанное значение.
+    /// @return true при успешном чтении.
+    bool read_register_func(uint16_t reg, uint8_t func, uint16_t& out_value);
+
+    bool _comm_fault;        ///< Флаг ошибки обмена Modbus.
+    uint32_t _last_error_print; ///< Время последнего вывода ошибки.
 };
 
-#endif // SERVO_DRIVER_H
+#endif

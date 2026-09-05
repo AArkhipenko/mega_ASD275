@@ -1,64 +1,52 @@
+/*
+ * servo_simulator — имитация драйвера сервопривода (driver_interface) для отладки без железа.
+ * Движение длится расчётное время в зависимости от оборотов и скорости.
+ */
+
 #ifndef SERVO_SIMULATOR_H
 #define SERVO_SIMULATOR_H
 
 #include <Arduino.h>
-#include "servo_interface.h"
+#include "driver_interface.h"
 
-// Константа для расчёта оборотов (как у реального привода)
-#define PULSES_PER_REV 10000  // 10000 импульсов = 1 оборот
-
-/**
- * @brief Симулятор сервопривода, реализующий интерфейс servo_interface.
- * Не управляет реальными пинами, а имитирует поведение привода:
- * блокирующее движение с расчётной длительностью и логирование в Serial.
- * Предназначен для отладки прошивки без наличия железа.
- */
-class servo_simulator : public servo_interface {
+/// @brief Симулятор драйвера сервопривода для отладки без железа.
+class servo_simulator : public driver_interface {
 public:
-    /// @brief Конструктор класса.
+    /// @brief Конструктор.
     servo_simulator();
 
-    /**
-     * @brief Инициализирует симулятор.
-     */
-    void init() override;
+    /// @brief Включить имитацию привода.
+    /// @return true.
+    bool enable() override;
 
-    /**
-     * @brief Задаёт направление вращения.
-     * @param forward true — вперёд, false — назад.
-     */
-    void set_direction(bool forward) override;
+    /// @brief Выключить имитацию привода.
+    /// @return true.
+    bool disable() override;
 
-    /**
-     * @brief Имитирует движение на заданное количество импульсов.
-     * Длительность движения рассчитывается из ширины импульса,
-     * во время движения возможна остановка командой 'S'.
-     * @param pulses Количество импульсов (10000 = 1 оборот).
-     */
-    void move(unsigned long pulses) override;
+    /// @brief Запустить имитацию движения.
+    /// @param revolutions Обороты (знак — направление).
+    /// @param rpm Скорость в об/мин.
+    /// @return true, если движение запущено.
+    bool start_move(int32_t revolutions, uint16_t rpm) override;
 
-    /**
-     * @brief Преобразует угол в градусах в количество импульсов.
-     * @param degrees Угол в градусах.
-     * @return Количество импульсов для поворота на заданный угол.
-     */
-    unsigned long degrees_to_pulses(float degrees) override;
-
-    /**
-     * @brief Останавливает имитацию движения.
-     */
+    /// @brief Остановить имитацию движения.
     void stop() override;
 
-    /**
-     * @brief Проверяет, выполняется ли имитация движения.
-     * @return true, если движение в процессе.
-     */
-    bool is_running() const override;
+    /// @brief Проверка имитации движения.
+    /// @return true, если движение в процессе.
+    bool is_moving() override;
+
+    /// @brief Ошибки отсутствуют.
+    /// @return false.
+    bool has_fault() override;
 
 private:
-    bool _motor_running;     ///< Флаг имитации движения.
-    bool _current_direction; ///< Текущее направление (true = вперед).
-    unsigned int _pulse_width; ///< Ширина импульса в микросекундах.
+    bool _enabled;             ///< Флаг включения привода.
+    int32_t _revolutions;      ///< Заданные обороты (со знаком).
+    uint16_t _rpm;             ///< Заданная скорость.
+    bool _running;             ///< Флаг имитации движения.
+    unsigned long _start_ms;   ///< Время запуска движения.
+    unsigned long _duration_ms; ///< Длительность движения.
 };
 
-#endif // SERVO_SIMULATOR_H
+#endif

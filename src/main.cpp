@@ -1,91 +1,102 @@
 /*
- * Управление сервоприводом ASD через CN1 с учетом данных с дисплея DWIN
+ * Управление сервоприводом ASD275 по параметрам от источника данных (DWIN).
  * Платформа: Arduino Mega 2560 ATmega2560
  *
- * Подключение:
- * D5 (PULS+)  → CN1 пин 5
- * D3 (PULS-)  → CN1 пин 21
- * D4 (SIGN+)  → CN1 пин 6
- * D2 (SIGN-)  → CN1 пин 22
- *
- * Serial1 (аппаратный UART):
- * D19 (RX1)   → TX дисплея DWIN
- * D18 (TX1)   → RX дисплея DWIN
- * (Serial (пины 0, 1) используется только для отладки)
+ * Сборка модулей (dependency injection):
+ *   data_source        -> DWIN (Serial1) или симулятор (Serial)
+ *   parameter_registry -> реестр параметров по адресам
+ *   parameter_router   -> диспетчер обновлений от data_source
+ *   scaled_parameter   -> хранилища параметров (угол, скорость, ...)
+ *   axis_motion_translator -> преобразование «дельта параметра» в команды
+ *   driver_interface   -> ASD275 (Modbus RTU, Serial3) или симулятор
  */
 
 #include <Arduino.h>
+
 #ifdef USE_DWIN_LCM_SIMULATOR
 #include "dwin_lcm_simulator.h"
 #else
 #include "dwin_lcm.h"
 #endif
+
 #ifdef USE_SERVO_SIMULATOR
 #include "servo_simulator.h"
 #else
 #include "servo_driver.h"
 #endif
-#include "data_source.h"
-#include "angle_source.h"
-#include "servo_interface.h"
-#include "position_calculator.h"
-#include "dwin_angle_source.h"
-#include "servo_controller.h"
+
+#include "parameter_addresses.h"
+#include "scaled_parameter.h"
+#include "axis_motion_translator.h"
+#include "parameter_registry.h"
+#include "parameter_router.h"
 
 #ifdef USE_DWIN_LCM_SIMULATOR
-// Симулятор: значение VP вводится с монитора Serial (пины 0, 1)
 dwin_lcm_simulator display(Serial);
 #else
-// Дисплей DWIN подключен к аппаратному UART Serial1 (D18/TX1, D19/RX1)
 dwin_lcm display(Serial1);
 #endif
+
 #ifdef USE_SERVO_SIMULATOR
 servo_simulator servo_impl;
 #else
 servo_driver servo_impl;
 #endif
 
-dwin_angle_source angle_reader_impl(display);
-servo_controller positioner_impl(servo_impl);
+scaled_parameter table_angle(param_addr::TABLE_ANGLE, "Угол станины", 0.01f, true);
+scaled_parameter distance(param_addr::DISTANCE_TO_STOP, "Расстояние до упора", 0.01f, true);
+scaled_parameter axis_speed(param_addr::SPEED_RPM, "Скорость", 1.0f, false);
+scaled_parameter revs_per_degree(param_addr::REVS_PER_DEGREE, "Оборотов на градус", 1e-4f, false);
 
-// Далее логика оперирует только абстракциями
-servo_interface& servo = servo_impl;
-angle_source& angle_reader = angle_reader_impl;
-position_calculator& positioner = positioner_impl;
+axis_motion_translator angle_translator(table_angle, servo_impl, &axis_speed, &revs_per_degree);
 
+parameter_registry registry;
+parameter_router router(display, registry);
+
+/// @brief Инициализация системы: настройка источника данных, реестра и привода.
 void setup() {
     Serial.begin(9600);
-    while (!Serial) { ; }
-
-    servo.init();
+    while (!Serial) { }
 
 #ifndef USE_DWIN_LCM_SIMULATOR
-    // ВАЖНО: вызываем begin() для аппаратного Serial1 ПЕРЕД использованием
     Serial1.begin(115200);
 #endif
 
-    Serial.println(F("Система инициализирована. Ожидание команд от DWIN (VP 0x5002)..."));
+    table_angle.attach_translator(&angle_translator);
 
+    registry.register_storage(table_angle);
+    registry.register_storage(distance);
+    registry.register_storage(axis_speed);
+    registry.register_storage(revs_per_degree);
+
+    axis_speed.apply_update(60);
+    revs_per_degree.apply_update(10000);
+
+    servo_impl.enable();
+
+    Serial.println(F("Система инициализирована"));
 #ifdef USE_DWIN_LCM_SIMULATOR
-    Serial.println(F("[SIM] Введите сырое значение VP (например, 4500 = 45.00°) в монитор порта"));
+    Serial.println(F("[SIM] Формат команды: <адрес> <значение>"));
+    Serial.println(F("[SIM] Примеры: 0x5002 4500 (угол), 0x6000 120 (скорость)"));
 #endif
-
-    delay(500);
 }
 
+/// @brief Главный цикл: диспетчеризация обновлений и контроль движения привода.
 void loop() {
-    if (positioner.is_moving()) {
-        while (Serial1.available()) {
-            Serial1.read();
+    while (router.poll()) { }
+
+#ifndef USE_DWIN_LCM_SIMULATOR
+    static unsigned long last_poll = 0;
+    static const unsigned long POLL_PERIOD_MS = 200UL;
+    unsigned long now = millis();
+    if (now - last_poll >= POLL_PERIOD_MS) {
+        last_poll = now;
+        for (uint8_t i = 0; i < registry.count(); i++) {
+            display.read_ram(registry.address_at(i), 1);
         }
-        delay(1);
-        return;
     }
+#endif
 
-    float new_angle = 0.0f;
-    if (angle_reader.try_read_angle(new_angle)) {
-        positioner.try_apply_target(new_angle);
-    }
-
-    delay(10);
+    angle_translator.tick();
+    delay(1);
 }
