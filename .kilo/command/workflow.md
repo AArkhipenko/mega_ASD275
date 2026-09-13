@@ -18,6 +18,6 @@ $ARGUMENTS
 - `analytics` — артефакты в `docs/sessions/<id>/artifacts/`;
 - `develop` — код по артефактам + `pio run`;
 - `review` — отчёт в `docs/sessions/<id>/reviews/`;
-- `docs` — после вердикта `approved` перегенерируй `docs/generated/`.
+- `docs` — после вердикта `approved` перегенерируй общий набор `docs/generated/` (корень, без подпапок по сессиям; сессия — только источник артефактов).
 
 Обновляй статусы в `session.md`. При вердикте `changes-required` возвращайся на разработку и повторяй ревью (до 3 итераций). В конце — итоговый отчёт: артефакты, изменённые файлы, вердикт, статус `pio run`, статус обновления `docs/generated/`.
