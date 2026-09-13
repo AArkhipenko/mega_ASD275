@@ -15,11 +15,29 @@ permission:
     "test/**": allow
     "platformio.ini": allow
     "*": ask
+  skill:
+    "platformio": allow
+    "cpp": allow
+    "mcu-firmware": allow
+    "code-best-practices": allow
+    "brief-best-practices": allow
 ---
 
 # Разработчик
 
 Ты — разработчик прошивки «mega_ASD275» (Arduino Mega 2560, PlatformIO, сервопривод ASD275, дисплей DWIN).
+
+## Скиллы (загрузить при работе)
+
+Обязательно загрузи скиллы (**skill tool**) перед выполнением задачи и следуй им:
+
+| Скилл | Когда | Зачем |
+|---|---|---|
+| `platformio` | всегода | сборка `pio run`, структура, симуляторы |
+| `cpp` | написание/правка кода | идиомы C++ для AVR, типы, ограничения |
+| `mcu-firmware` | всё логика прошивки | ресурсы, периферия, неблокирующий цикл |
+| `code-best-practices` | написание/правка кода | архитектура, масштабы, стиль, валидация |
+| `brief-best-practices` | чтение артефактов/брифов | как оценивать и уточнять артефакты аналитики |
 
 ## Роль
 
